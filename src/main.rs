@@ -1,4 +1,11 @@
 #![allow(dead_code)]
+#![allow(unused_variables)]
+#![allow(unused_mut)]
+
+use std::slice::Iter;
+use std::iter::Peekable;
+use std::collections::HashMap;
+
 #[derive(PartialEq,Debug)]
 enum Data {
     Nil,
@@ -62,27 +69,38 @@ macro_rules! list {
     };
 }
 
-fn print_list(list:&Data) {
-    print!("(");
-    print_listh(list);
+fn print(list:&Data) {
+    printh(list);
+    print!("\n");
 }
 
-fn print_listh(list:&Data) {
-
+fn printh(list:&Data) {
     match *list {
-        Data::Nil => {print!(")");},
-        Data::Atom(ref s) => print!("{} ", *s),
-        Data::Symbol(ref s) => print!("{} ", s),
+        Data::Atom(ref s) => print!("{}", *s),
+        Data::Symbol(ref s) => print!("{}", *s),
+        Data::Nil => print!("Nil"),
         Data::Cons(ref a, ref b) => {
-            match **a {
-                Data::Nil => { print!("()"); }
-                Data::Cons(_,_) => { print!("("); }
-                _ => {;}
+            print!("(");
+            printh(a);
+            let mut c = b;
+            while **c != Data::Nil {
+                match **c {
+                    Data::Nil => {unreachable!();},
+                    Data::Cons(ref a, ref b) => {
+                        print!(" ");
+                        printh(a);
+                        c = b;
+                    }
+                    _ => { print!(" . ");
+                           printh(&*c);
+                           print!(")");
+                           return;
+                    }
+                }
             }
-            print_listh(a);
-            print_listh(b);            
-        },
-    }
+            print!(")");
+        }
+    };
 }
 
 fn tokenize(chars:&str) -> Vec<String>{
@@ -96,7 +114,7 @@ fn tokenize(chars:&str) -> Vec<String>{
         .collect()
 }
 
-fn read_from_tokens(tokens:&mut std::iter::Peekable<std::slice::Iter<String>>) -> Data {
+fn read_from_tokens(tokens:&mut Peekable<Iter<String>>) -> Data {
     /* Reads an expression from a sequence of tokens. " */
     
     if tokens.len() == 0 {
@@ -121,7 +139,22 @@ fn parse(program:&str) -> Data {
     return read_from_tokens(&mut tokenize(program).iter().peekable());
 }
 
+fn eval(val:Data, env:HashMap<String,f32>) -> f32 {
+    match val {
+        Data::Symbol(ref s) => *env.get(s).unwrap(),
+        Data::Atom(f) => f,
+        Data::Nil => unreachable!(),
+        Data::Cons(a, b) => apply(*a, *b),
+    }
+}
+
+fn apply(fun:Data, arguments:Data) -> f32 {
+    return 0.0;
+}
+
 fn main() {
+    let mut env:HashMap<&str,Data> = HashMap::new();
     let parsed = parse("(begin (define r 10) (* pi (* r r)))");
-    print_list(&parsed);
+    print(&parsed);
+    print(&cons(Data::Symbol("Love".to_string()), Data::Symbol("You".to_string())));
 }
