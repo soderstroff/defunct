@@ -5,94 +5,87 @@
 use std::slice::Iter;
 use std::iter::Peekable;
 use std::collections::HashMap;
+use Data::{Nil, Symbol, Float, Cons};
 
 #[derive(PartialEq,Debug)]
 enum Data {
     Nil,
     Symbol(String),
-    Atom(f32),
-    Cons ( Box<Data>, Box<Data> )
+    Float(f32),
+    Cons(Box<(Data,Data)>)
 }
 
 fn cons (car:Data, cdr:Data) -> Data {
-    Data::Cons( Box::new(car), Box::new(cdr) )
+    Data::Cons( Box::new( (car,cdr) ) )
+}
+
+fn atom(v:&Data) -> bool {
+    match *v {
+        Cons(_) => false,
+        _ => true,
+    }
 }
 
 fn nreverse (list: Data) -> Data{
-    let mut curr = list;
-    let mut prv = Box::new(Data::Nil);
+    let mut curr =  list;
+    let mut prv = Nil;
     
-    while curr != Data::Nil {
+    while curr != Nil {
         match curr {
-            Data::Nil => unreachable!(),
-            Data:: Symbol(_) |Data::Atom(_) => {panic!("Not a proper list!")},
-            Data::Cons(_, ref mut next) =>{
-               std::mem::swap(next, &mut prv);
-            }            
+            Cons(ref mut c) =>{
+                let next = &mut c.1;
+                std::mem::swap(next, &mut prv);
+            }
+            _ => panic!("Not a proper list!"),
         };
         std::mem::swap(&mut curr, &mut prv);
-
     }
-    *prv
+    prv
 }
 
-fn car (d:Data) -> Data {
-    match d {
-        Data::Nil => Data::Nil,
-        Data::Cons(a, _) => *a,
-        v@Data::Symbol(_) | v@Data::Atom(_) => v,
+fn car (d:&Data) -> &Data {
+    match *d {
+        Cons(ref c) => &c.0,
+        ref v @ _ => v,
     }
 }
 
-fn cdr (d:Data) -> Data {
-    match d {
-        Data::Nil => Data::Nil,
-        Data::Cons(_, b) => *b,
-        v@Data::Symbol(_) | v@Data::Atom(_) => v,
+fn cdr (d:&Data) -> &Data {
+    match *d {
+        Cons(ref c) => &c.1,
+        ref v @ _ => v,
     }
 }
 
-fn cadr (d:Data) -> Data {
+fn cadr (d:&Data) -> &Data {
     car(cdr(d))
 }
 
-macro_rules! list {
-    ( $( $item:expr),* ) => {
-        {
-            let mut list:Data = Data::Nil;
-            $(
-                // TODO: Make consable a trait, and get this working. 
-                list = cons(Data::Atom($item), list);
-                )*
-                list
-        }
-    };
-}
-
 fn print(list:&Data) {
+    /* Pretty prints a list. Calls a helper function. */
     printh(list);
     print!("\n");
 }
 
 fn printh(list:&Data) {
     match *list {
-        Data::Atom(ref s) => print!("{}", *s),
-        Data::Symbol(ref s) => print!("{}", *s),
-        Data::Nil => print!("Nil"),
-        Data::Cons(ref a, ref b) => {
+        Float(s) => print!("{}", s),
+        Symbol(ref s) => print!("{}", *s),
+        Nil => print!("Nil"),
+        Cons(ref c) => {
             print!("(");
-            printh(a);
-            let mut c = b;
-            while **c != Data::Nil {
-                match **c {
-                    Data::Nil => {unreachable!();},
-                    Data::Cons(ref a, ref b) => {
+            printh(&c.0);
+            let mut focus = &c.1;
+            while *focus != Nil {
+                match *focus {
+                    Nil => {unreachable!();},
+                    Cons(ref c) => {
                         print!(" ");
-                        printh(a);
-                        c = b;
+                        printh(&c.0);
+                        focus = &c.1;
                     }
                     _ => { print!(" . ");
-                           printh(&*c);
+                           printh(&focus);
                            print!(")");
                            return;
                     }
@@ -124,7 +117,7 @@ fn read_from_tokens(tokens:&mut Peekable<Iter<String>>) -> Data {
     let token = tokens.next().unwrap();
 
     if token == "(" {
-        let mut l = Data::Nil;
+        let mut l = Nil;
         while *tokens.peek().unwrap() != ")" {
             l = cons(read_from_tokens(tokens), l);
         }
@@ -139,22 +132,12 @@ fn parse(program:&str) -> Data {
     return read_from_tokens(&mut tokenize(program).iter().peekable());
 }
 
-fn eval(val:Data, env:HashMap<String,f32>) -> f32 {
-    match val {
-        Data::Symbol(ref s) => *env.get(s).unwrap(),
-        Data::Atom(f) => f,
-        Data::Nil => unreachable!(),
-        Data::Cons(a, b) => apply(*a, *b),
-    }
-}
-
-fn apply(fun:Data, arguments:Data) -> f32 {
-    return 0.0;
-}
-
 fn main() {
-    let mut env:HashMap<&str,Data> = HashMap::new();
     let parsed = parse("(begin (define r 10) (* pi (* r r)))");
     print(&parsed);
-    print(&cons(Data::Symbol("Love".to_string()), Data::Symbol("You".to_string())));
+    print(&cons(Symbol("Love".to_string()), Symbol("You".to_string())));
+    print(&cons(Nil, Nil));
+    print(&cons(Float(1.0), Float(2.0)));
+    print(&cons(Nil, Symbol("Test".to_string())));
+    print(&parse("(1 2 3 ())"));
 }
