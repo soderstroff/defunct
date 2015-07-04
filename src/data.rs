@@ -207,10 +207,12 @@ impl Data {
 
                     Symbol(ref s) if s == "begin" => self.cdr()
                         .eval_list(env).last().clone(),
-                        
+                    /* Function application. Retrieve the function object
+                    from the environment, evaluate all the argument expressions,
+                    then apply the function to the arguments. */
                     _ => {
-                        let args = self.cdr().eval_list(env);
                         let f = self.car().eval(env);
+                        let args = self.cdr().eval_list(env);
                         f.apply(&args, env)
                     }
                 }
@@ -224,7 +226,7 @@ impl Data {
             Cons(_) => self.map(|d:&Data| d.eval(env)),
             _ => panic!("Not a list!"),
     }*/
-        if self.atom() {panic!("Not a list!")};
+        if self.atom() && *self != Nil {panic!("Not a list!")};
 
         let mut mapped = Nil;
         let mut curr = self;

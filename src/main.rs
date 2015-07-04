@@ -6,6 +6,9 @@
 /* Imports */
 use std::slice::Iter;
 use std::iter::Peekable;
+use std::process::exit;
+use std::io::Stdin;
+
 
 /* Lisp evaluation data */
 mod data;
@@ -95,7 +98,11 @@ fn add(args:&Data) -> Data {
         _ => panic!("Cannot add these values."),
     }
 }
-            
+
+fn quit(args:&Data) -> Data {
+    println!("Exiting session.");
+    exit(0);
+}
 
 fn init() -> Env {
     let mut env:Env = Env::new();
@@ -104,12 +111,27 @@ fn init() -> Env {
                  Function::new(Box::new(times), 2));
     env.insertfn("+".to_string(),
                  Function::new(Box::new(add), 2));
+    env.insertfn("exit".to_string(),
+                 Function::new(Box::new(quit),0));
+
     env
 }
+use std::io::Write;
+fn repl(env:&mut Env) {
+    let mut input = String::new();
+    let mut stdin = std::io::stdin();
+    let mut stdout = std::io::stdout();
+    loop {
+        print!("defunct> ");
+        stdout.flush();
+        stdin.read_line(&mut input);
+        println!("{}", parse(&input).eval(env));
+        input.clear();
+    }
+}
+        
 
 fn main() {
-    let fn_map = &mut init();
-    println!("{}", parse("(+ (* 4 (* 2 12)) 5)").eval(fn_map));
-    println!("{}", parse("(begin (define r 10) (* 3.14 (* r r)))").eval(fn_map));
-    println!("{}", parse("(begin (define pi 3.14) (* pi (* r r)))").eval(fn_map));
+    let env = &mut init();
+    repl(env);
 }
