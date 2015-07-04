@@ -1,15 +1,17 @@
-/* Implementation of lisp data types, especially Cons. */
+/// Implementation of lisp data types and the evaluation environment.
 
-/* Imports */
+// Imports
 use std::collections::HashMap;
 use std::fmt;
 use std::mem::swap;
+use std::process::exit;
+pub use data::Data::*;
 
-/* An Environment frame. Has a parent, unless it is the root frame.*/
+/// An environment frame. Has a parent, unless it is the root frame.
 pub struct Env {
-    env:HashMap<String,Data>,
-    fns:FnMap,
-    parent:Box<Option<Env>>
+    env: HashMap<String,Data>,
+    fns: FnMap,
+    parent: Box<Option<Env>>,
 }
 
 impl Env {
@@ -21,49 +23,82 @@ impl Env {
         }
     }
     
-    pub fn lookup(&self, symbol:&String) -> &Data {
-        let s = self.env.get(symbol).expect(
-            &format!("Could not find free variable {}", symbol));
-        s
+    pub fn lookup(&self, symbol: &String) -> &Data {
+        self.env.get(symbol)
+            .expect(&format!("Could not find free variable {}", symbol))
     }
 
-    pub fn insert(&mut self, symbol:String, d:Data) {
+    pub fn insert(&mut self, symbol: String, d: Data) {
         self.env.insert(symbol, d);
     }
 
-    pub fn lookupfn(&self, symbol:&String) -> &Function {
+    pub fn lookupfn(&self, symbol: &String) -> &Function {
         self.fns.get(symbol).expect(
             &format!("Could not find function {}", symbol))
     }
 
-    pub fn insertfn(&mut self, name:String, f:Function) {
+    pub fn insertfn(&mut self, name: String, f: Function) {
         self.env.insert(name.clone(), Func(name.clone()));
         self.fns.insert(name.clone(), f);
     }
+
+    pub fn init() -> Env {
+        let mut env:Env = Env::new();
+
+        env.insertfn("*".to_string(),
+                     Function::new(Box::new(times), 2));
+        env.insertfn("+".to_string(),
+                     Function::new(Box::new(add), 2));
+        env.insertfn("exit".to_string(),
+                     Function::new(Box::new(quit),0));
+
+        env
+    }
+
+}
+
+/// Default environment. 
+fn times (args: &Data) -> Data {
+    match (args.car(), args.cadr()) {
+        (&Float(f), &Float(g)) => Float(f * g),
+        _ => panic!("Cannot multiply these values."),
+    }
+}
+
+fn add(args: &Data) -> Data {
+    match (args.car(), args.cadr()) {
+        (&Float(f), &Float(g)) => Float(f + g),
+        _ => panic!("Cannot add these values."),
+    }
+}
+
+#[allow(unused_variables)]
+fn quit(args: &Data) -> Data {
+    println!("Exiting session.");
+    exit(0)
 }
 
 pub type LispFn = Box<Fn(&Data) -> Data>;
 pub struct Function {
-    pub f:Box<Fn(&Data) -> Data>,
-    pub arity:usize
+    pub f: Box<Fn(&Data) -> Data>,
+    pub arity: usize
 }
 
+/// An executable function.
+/// Contains a function pointer and an arity.
 impl Function {
-    /* An executable function. Contains a function pointer
-    and an arity. */
-    pub fn new(f:LispFn, arity:usize) -> Function {
+    pub fn new(f: LispFn, arity: usize) -> Function {
         Function {
             f: f,
             arity: arity,
         }
     }
 
-    pub fn apply(&self, args:&Data) -> Data {
+    pub fn apply(&self, args: &Data) -> Data {
         let len = args.len();
-        let arity = self.arity;
-        if len != arity {
+        if len != self.arity {
             panic!("Could not apply function of arity {} to {} args.",
-                            arity, len);
+                            self.arity, len);
         }
         else {
             (self.f)(args)
@@ -73,8 +108,8 @@ impl Function {
 
 type FnMap = HashMap<String,Function>;
 
-/* Lisp datatypes. A Cons is a
-pointer to a pair, not the pair itself. */
+/// Lisp datatypes. A Cons is a
+/// pointer to a pair, not the pair itself.
 #[derive(PartialEq, Clone, Debug)]
 pub enum Data {
     Nil,
@@ -83,7 +118,6 @@ pub enum Data {
     Func(String),
     Cons(Box<(Data,Data)>)
 }
-use data::Data::{Nil, Symbol, Float, Cons, Func};
 
 impl Data {
     pub fn atom(&self) -> bool {
@@ -113,8 +147,8 @@ impl Data {
         self.cdr().car()
     }
 
+    /// Reverses a list in place. Non-consing.
     pub fn nreverse (self) -> Data{
-        /* Reverses a list in place. Non-consing. */
         let mut curr = self;
         let mut prv = Nil;
         
@@ -131,8 +165,7 @@ impl Data {
         prv
     }
 
-    pub fn map<F> (&self, f:F) -> Data 
-        where F : Fn(&Data) -> Data {
+    pub fn map (&self, f: fn(&Data) -> Data) -> Data {
             /* Applies f to every element in the list. */
             if self.atom() {panic!("Not a list!")};
 
@@ -179,37 +212,46 @@ impl Data {
         c.car()
     }
 
+    fn eval_special(&self, s: &str, env: &mut Env) -> Data {
+        match s {
+            "if" => {
+                if self.car().eval(env) != Nil {
+                    self.cadr().eval(env)
+                }
+                else { self.cdr().cadr().eval(env) }
+            },
+            
+            "quote" => self.clone(),
+
+            "define" => {
+                match *self.car() {
+                    Symbol(ref s) => {
+                        let d = self.cadr().eval(env);
+                        env.insert(s.clone(), d.clone());
+                        d
+                    },
+                    _ => panic!("Error: {} is not a symbol!", *self.cadr()),
+                }},
+
+            "begin" => self.eval_list(env).last().clone(),
+
+            _ => unreachable!(),
+        }
+    }
+
+    /// Evaluates a Lisp program.
     pub fn eval(&self, env:&mut Env) -> Data {
-        /* Evaluates a Lisp program. */
         match *self {
-            Symbol(ref s) => env.lookup(s).clone(),
-            /* A list is function application or a special form. */
+            
+            // A list is function application or a special form. 
             Cons(_) => {
                 match *self.car() {
-                    /* First try special forms. */
-                    Symbol(ref s) if s == "if" => {
-                        if self.car().eval(env) != Nil {
-                            self.cadr().eval(env)
-                        }
-                        else { self.cdr().cadr().eval(env) }
-                    }
-                    Symbol(ref s) if s == "quote" => self.cadr().clone(),
-
-                    Symbol(ref s) if s == "define" => {
-                        match *self.cadr() {
-                            Symbol(ref s) => {
-                                let d = self.cdr().cadr().eval(env);
-                                env.insert(s.clone(), d.clone());
-                                d
-                            },
-                            _ => panic!("Error: {} is not a symbol!", *self.cadr()),
-                        }},
-
-                    Symbol(ref s) if s == "begin" => self.cdr()
-                        .eval_list(env).last().clone(),
-                    /* Function application. Retrieve the function object
-                    from the environment, evaluate all the argument expressions,
-                    then apply the function to the arguments. */
+                    // First try special forms.
+                    Symbol(ref s) if special(s) => self.cdr().eval_special(s, env),
+                    
+                    // Function application. Retrieve the function object
+                    // from the environment, evaluate all the argument expressions,
+                    // then apply the function to the arguments.
                     _ => {
                         let f = self.car().eval(env);
                         let args = self.cdr().eval_list(env);
@@ -217,15 +259,18 @@ impl Data {
                     }
                 }
             }
+            Symbol(ref s) => env.lookup(s).clone(),
             _ => self.clone()
         }
     }
 
     pub fn eval_list(&self, env:&mut Env) -> Data {
-/*        match *self {
-            Cons(_) => self.map(|d:&Data| d.eval(env)),
+        /* One day this will work. One day!!
+        match *self {
+            Cons(_) => self.map(|d:&Data| -> Data{ d.eval(env) }),
             _ => panic!("Not a list!"),
-    }*/
+    }
+         */
         if self.atom() && *self != Nil {panic!("Not a list!")};
 
         let mut mapped = Nil;
@@ -238,44 +283,54 @@ impl Data {
         mapped.nreverse()
     }
 
+    /// Applies a function too a list of arguments. 
     pub fn apply(&self, args:&Data, env:&mut Env) -> Data {
-        /* Applies a function too a list of arguments. */
         match *self {
             Func(ref s) => env.lookupfn(s).apply(args),
             _ => panic!("{} is not a function."),
         }
     }
 
+    
+    /// Constructs a cons. Transfers ownership to new cons. 
     pub fn cons (self, cdr:Data) -> Data {
-        /* Constructs a cons. Transfers ownership to new cons. */
         Cons( Box::new( (self,cdr) ) )
     }
     
 }
 
+fn special(s: &str) -> bool {
+    match s {
+        "define" | "if" | "quote" | "begin" => true,
+        _ => false,
+    }
+}
+
+/// Pretty printing support.
 impl fmt::Display for Data {
-    /* Pretty printing support.*/
+
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
             Float(s) => write!(f, "{}", s),
 
             Nil => write!(f, "Nil"),
-            Cons(ref c) => {
-                write!(f, "({}", &c.0);
-                let mut focus = &c.1;
+            Cons(_) => {
+                write!(f, "({}", self.car());
+                let mut focus = self.cdr();
                 while *focus != Nil {
                     match *focus {
-                        Nil => {unreachable!();},
-                        Cons(ref c) => {
-                            write!(f, " {}", &c.0);
-                            focus = &c.1;
+                        Nil => unreachable!(),
+                        Cons(_) => {
+                            write!(f, " {}", focus.car());
+                            focus = focus.cdr();
                         }
                         _ => return write!(f, " . {})", focus)
                     }
                 }
                 write!(f, ")")
             }
-            Symbol(ref s) | Func(ref s) => write!(f, "{}", *s),
+            Symbol(ref s) => write!(f, "{}", *s),
+            Func(ref s) => write!(f, "#<Function {}>", *s),
         }
     }
 }

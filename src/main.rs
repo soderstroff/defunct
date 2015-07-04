@@ -1,34 +1,29 @@
-#![allow(dead_code)]
-#![allow(unused_variables)]
-#![allow(unused_mut)]
+// Directives
 #![allow(unused_must_use)]
 
-/* Imports */
+// Imports
 use std::slice::Iter;
 use std::iter::Peekable;
-use std::process::exit;
-use std::io::Stdin;
+use std::io::Write;
 
-
-/* Lisp evaluation data */
+// Lisp data-types and evaluation environment
 mod data;
-use data::Env;
-use data::Data;
-use data::Data::{Nil, Symbol, Float};
-use data::Function;
+use data::*;
+
 
 fn tokenize(chars:&str) -> Vec<String>{
     /* Takes a string of chars and returns a vector of tokens. */
 
-    chars.replace("(", " ( ")
+    let v = chars.replace("(", " ( ")
         .replace(")", " ) ")
-        .split(' ')
+        .split_whitespace()
         .filter(|s| !(s.is_empty()))
         .map(|s| s.to_string())
-        .collect()
+        .collect();
+    v
 }
 
-fn read_from_tokens(tokens:&mut Peekable<Iter<String>>) -> Data {
+fn read_from_tokens(tokens: &mut Peekable<Iter<String>>) -> Data {
     /* Reads an expression from a sequence of tokens. " */
     
     if tokens.len() == 0 {
@@ -50,7 +45,7 @@ fn read_from_tokens(tokens:&mut Peekable<Iter<String>>) -> Data {
         Ok(f) => return Float(f),
         _ => {;}
     }
-            
+   
     return Symbol(token.to_string())
 }
 
@@ -58,80 +53,24 @@ fn parse(program:&str) -> Data {
     return read_from_tokens(&mut tokenize(program).iter().peekable());
 }
 
-fn test_cons() {
-    let parsed = parse("(begin (define r 10) (* pi (* r r)))");
-    println!("{}",&parsed);
-    println!("{}", &Symbol("Love".to_string()).cons(Symbol("You".to_string())));
-    println!("{}", &Nil.cons(Nil));
-    println!("{}", &Float(1.0).cons(Float(2.0)));
-    println!("{}",&Nil.cons(Symbol("Test".to_string())));
-    println!("{}",&parse("(1 2 3)"));
-    println!("{}", &parse("(1 2 3)").map(|x| -> Data {
-        match *x {
-            Float(f) => Float(f + 2.0),
-            _ => Float(0.0),
-        }
-    }))
-}
 
-/* Default Environment */
-fn times(args:&Data) -> Data {
-    match *args.car() {
-        Float(f) => {
-            match *args.cadr() {
-                Float(g) => Float(f * g),
-                _ => panic!("Cannot multiply these values."),
-            }
-        },
-        _ => panic!("Cannot multiply these values."),
-    }
-}
-
-fn add(args:&Data) -> Data {
-    match *args.car() {
-        Float(f) => {
-            match *args.cadr() {
-                Float(g) => Float(f + g),
-                _ => panic!("Cannot add these values."),
-            }
-        },
-        _ => panic!("Cannot add these values."),
-    }
-}
-
-fn quit(args:&Data) -> Data {
-    println!("Exiting session.");
-    exit(0);
-}
-
-fn init() -> Env {
-    let mut env:Env = Env::new();
-
-    env.insertfn("*".to_string(),
-                 Function::new(Box::new(times), 2));
-    env.insertfn("+".to_string(),
-                 Function::new(Box::new(add), 2));
-    env.insertfn("exit".to_string(),
-                 Function::new(Box::new(quit),0));
-
-    env
-}
-use std::io::Write;
-fn repl(env:&mut Env) {
+fn repl(env: &mut Env) {
     let mut input = String::new();
     let mut stdin = std::io::stdin();
     let mut stdout = std::io::stdout();
+    
     loop {
         print!("defunct> ");
         stdout.flush();
         stdin.read_line(&mut input);
-        println!("{}", parse(&input).eval(env));
+        println!("{}\n", parse(&input).eval(env));
         input.clear();
     }
 }
         
 
 fn main() {
-    let env = &mut init();
+    let env = &mut Env::init();
     repl(env);
 }
+        
