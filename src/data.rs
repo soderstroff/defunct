@@ -22,17 +22,21 @@ impl Env {
     }
     
     pub fn lookup(&self, symbol:&String) -> &Data {
-        let s = self.env.get(symbol).expect("Could not find free variable!");
-        println!("Found {} in environment!", s);
+        let s = self.env.get(symbol).expect(
+            &format!("Could not find free variable {}", symbol));
         s
     }
 
-    fn lookupfn(&self, symbol:&String) -> &Function {
-        self.fns.get(symbol).expect("Could not find function in environment.")
+    pub fn insert(&mut self, symbol:String, d:Data) {
+        self.env.insert(symbol, d);
+    }
+
+    pub fn lookupfn(&self, symbol:&String) -> &Function {
+        self.fns.get(symbol).expect(
+            &format!("Could not find function {}", symbol))
     }
 
     pub fn insertfn(&mut self, name:String, f:Function) {
-        let name = name.to_string();
         self.env.insert(name.clone(), Func(name.clone()));
         self.fns.insert(name.clone(), f);
     }
@@ -45,6 +49,8 @@ pub struct Function {
 }
 
 impl Function {
+    /* An executable function. Contains a function pointer
+    and an arity. */
     pub fn new(f:LispFn, arity:usize) -> Function {
         Function {
             f: f,
@@ -53,8 +59,11 @@ impl Function {
     }
 
     pub fn apply(&self, args:&Data) -> Data {
-        if args.len() != self.arity {
-            panic!("Arity error!");
+        let len = args.len();
+        let arity = self.arity;
+        if len != arity {
+            panic!("Could not apply function of arity {} to {} args.",
+                            arity, len);
         }
         else {
             (self.f)(args)
@@ -64,6 +73,8 @@ impl Function {
 
 type FnMap = HashMap<String,Function>;
 
+/* Lisp datatypes. A Cons is a
+pointer to a pair, not the pair itself. */
 #[derive(PartialEq, Clone, Debug)]
 pub enum Data {
     Nil,
@@ -103,6 +114,7 @@ impl Data {
     }
 
     pub fn nreverse (self) -> Data{
+        /* Reverses a list in place. Non-consing. */
         let mut curr = self;
         let mut prv = Nil;
         
@@ -121,6 +133,7 @@ impl Data {
 
     pub fn map<F> (&self, f:F) -> Data 
         where F : Fn(&Data) -> Data {
+            /* Applies f to every element in the list. */
             if self.atom() {panic!("Not a list!")};
 
             let mut mapped = Nil;
@@ -156,32 +169,75 @@ impl Data {
             _ => panic!("Not a list!"),
         }
     }
-    
-    
-    pub fn eval(&self, env:&Env) -> Data {
+
+    pub fn last(&self) -> &Data {
+        if self.atom() {panic!("Not a proper list.")};
+        let mut c = self;
+        while *c.cdr() != Nil {
+            c = c.cdr();
+        }
+        c.car()
+    }
+
+    pub fn eval(&self, env:&mut Env) -> Data {
+        /* Evaluates a Lisp program. */
         match *self {
-            Symbol(ref s) => { println!("Found {}", *s); env.lookup(s).clone()},
+            Symbol(ref s) => env.lookup(s).clone(),
+            /* A list is function application or a special form. */
             Cons(_) => {
                 match *self.car() {
-                    Symbol(ref s) if *s == "if".to_string() => {
+                    /* First try special forms. */
+                    Symbol(ref s) if s == "if" => {
                         if self.car().eval(env) != Nil {
                             self.cadr().eval(env)
                         }
                         else { self.cdr().cadr().eval(env) }
                     }
-                    Symbol(ref s) if *s == "quote".to_string() => self.cadr().clone(),
+                    Symbol(ref s) if s == "quote" => self.cadr().clone(),
 
-                    //Symbol("define") => to-do,
-                    _ => self.car().eval(env)
-                        .apply(&(self.cdr().map(|d| d.eval(env)))
-                               , env)
+                    Symbol(ref s) if s == "define" => {
+                        match *self.cadr() {
+                            Symbol(ref s) => {
+                                let d = self.cdr().cadr().eval(env);
+                                env.insert(s.clone(), d.clone());
+                                d
+                            },
+                            _ => panic!("Error: {} is not a symbol!", *self.cadr()),
+                        }},
+
+                    Symbol(ref s) if s == "begin" => self.cdr()
+                        .eval_list(env).last().clone(),
+                        
+                    _ => {
+                        let args = self.cdr().eval_list(env);
+                        let f = self.car().eval(env);
+                        f.apply(&args, env)
+                    }
                 }
             }
             _ => self.clone()
         }
     }
 
-    pub fn apply(&self, args:&Data, env:&Env) -> Data {
+    pub fn eval_list(&self, env:&mut Env) -> Data {
+/*        match *self {
+            Cons(_) => self.map(|d:&Data| d.eval(env)),
+            _ => panic!("Not a list!"),
+    }*/
+        if self.atom() {panic!("Not a list!")};
+
+        let mut mapped = Nil;
+        let mut curr = self;
+        while *curr != Nil {
+            mapped = curr.car().eval(env).cons(mapped);
+            curr = &curr.cdr();
+        }
+        
+        mapped.nreverse()
+    }
+
+    pub fn apply(&self, args:&Data, env:&mut Env) -> Data {
+        /* Applies a function too a list of arguments. */
         match *self {
             Func(ref s) => env.lookupfn(s).apply(args),
             _ => panic!("{} is not a function."),
@@ -189,12 +245,14 @@ impl Data {
     }
 
     pub fn cons (self, cdr:Data) -> Data {
+        /* Constructs a cons. Transfers ownership to new cons. */
         Cons( Box::new( (self,cdr) ) )
     }
     
 }
 
 impl fmt::Display for Data {
+    /* Pretty printing support.*/
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
             Float(s) => write!(f, "{}", s),

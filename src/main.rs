@@ -108,7 +108,8 @@ fn init() -> Env {
 }
 
 fn main() {
-    let mut fn_map = init();
-    println!("{}", parse("(1 2 3)").len());
-    println!("{}", parse("(+ (* 4 (* 2 12)) 5)").eval(&mut fn_map));
+    let fn_map = &mut init();
+    println!("{}", parse("(+ (* 4 (* 2 12)) 5)").eval(fn_map));
+    println!("{}", parse("(begin (define r 10) (* 3.14 (* r r)))").eval(fn_map));
+    println!("{}", parse("(begin (define pi 3.14) (* pi (* r r)))").eval(fn_map));
 }
