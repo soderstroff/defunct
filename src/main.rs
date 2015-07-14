@@ -73,6 +73,6 @@ fn repl(env: &mut Env) {
 
 
 fn main() {
-    let env = &mut Env::new_root();
+    let env = &mut EnvTable::new_root();
     repl(env);
 }

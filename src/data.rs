@@ -35,7 +35,7 @@ impl Data {
         match *self {
             Cons(ref c) => c.borrow().0.clone(),
             Nil => Nil,
-            _ => panic!("Not a cons!")
+            _ => panic!("{} is not a cons!", self)
         }
     }
 
@@ -116,7 +116,7 @@ impl Data {
             "define" => {
                 if let Symbol(ref s) = self.car() {
                     let expr = self.cadr().eval(env);
-                    env.insert(s.clone(), expr.clone());
+                    env.borrow_mut().insert(s.clone(), expr.clone());
                     expr
                 }
                 else { panic!("Error: {} is not a symbol!", self.cadr()) }
@@ -142,11 +142,11 @@ impl Data {
                     _ => {
                         let mut f = self.car().eval(env);
                         let args = self.cdr().eval_list(env);
-                        f.apply(&args, env)
+                        f.apply(&args)
                     }
                 }
             }
-            Symbol(ref s) => env.lookup(s).clone(),
+            Symbol(ref s) => env.borrow_mut().lookup(s).clone(),
             _ => self.clone()
         }
     }
@@ -175,22 +175,23 @@ impl Data {
     }
 
     /// Applies a function to a list of arguments.
-    pub fn apply(&mut self, args:&Data, env:&mut Env) -> Data {
+    pub fn apply(&mut self, args:&Data) -> Data {
         match *self {
-            Function{ args: ref params, body: ref body, env: ref mut scope } => {
+            Function{ args: ref params, ref body, ref mut env } => {
                 if params.len() == args.len() {
+                    let mut scope = EnvTable::new(env.clone());
                     let mut a = (**params).clone();
                     let mut b = (*args).clone();
                     while a.car() != Nil && b.car() != Nil {
                         match a.car() {
-                            Symbol(ref s) => scope.insert(s.clone(), b.car().clone()),
+                            Symbol(ref s) => scope.borrow_mut().insert(s.clone(), b.car().clone()),
                             _ => unreachable!("In apply"),
                         }
                         a = a.cdr();
                         b = b.cdr();
                     }
 
-                    body.eval(&mut *scope)
+                    body.eval(&mut scope)
                 }
                 else { panic!("Arity mismatch. Needed {}, but called with {}",
                               params.len(), args.len()); }
@@ -216,7 +217,7 @@ impl Data {
         Function {
             args: Box::new(args),
             body: Box::new(body),
-            env: Env::new(env),
+            env: env,
         }
     }
 
@@ -234,7 +235,6 @@ impl fmt::Display for Data {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
             Float(s) => write!(f, "{}", s),
-
             Nil => write!(f, "Nil"),
             Cons(_) => {
                 write!(f, "({}", self.car());
@@ -260,43 +260,47 @@ impl fmt::Display for Data {
 
 /// An environment frame. Has a parent, unless it is the root frame.
 #[derive(Clone)]
-pub struct Env {
+pub struct EnvTable {
     env: HashMap<String, Data>,
-    parent: Option<Box<Env>>,
+    parent: Option<Env>,
 }
+
+pub type Env = Rc<RefCell<EnvTable>>;
 
 lazy_static! {
     static ref primitives: HashMap<String, fn(&Data) -> Data> = {
         let mut p: HashMap<String, fn(&Data) -> Data> = HashMap::new();
-        p.insert("*".to_string(), times);
-        p.insert("+".to_string(), add);
-        p.insert("exit".to_string(), quit);
+        for (ident, op) in vec!(("*", times as fn(&Data)->Data), ("+", add), ("exit", quit), ("<", lt),
+            (">", gt), ("not", not), ("-", minus)) {
+                p.insert(ident.to_string(), op);
+            }
         p
     };
 }
 
-impl Env {
+impl EnvTable {
     pub fn new(parent: Env) -> Env {
-        Env {
+        let e = EnvTable {
             env: HashMap::new(),
-            parent: Some(Box::new(parent)),
-        }
+            parent: Some((parent.clone())),
+        };
+        Rc::new(RefCell::new(e))
     }
 
     pub fn new_root() -> Env {
-        let mut e = Env {
+        let mut e = EnvTable {
             env: HashMap::new(),
             parent: None,
         };
         e.init_env();
-        e
+        Rc::new(RefCell::new(e))
     }
 
     pub fn lookup(&self, symbol: &String) -> Data {
         if let v@Some(_) = self.env.get(symbol) { v.unwrap().clone() }
         else {
             match self.parent {
-                Some(ref v) => v.lookup(symbol),
+                Some(ref v) => v.borrow().lookup(symbol),
                 None => panic!("Could not find free variable {}", symbol)
             }
         }
@@ -315,6 +319,10 @@ impl Env {
         self.add_primitive("+");
         self.add_primitive("*");
         self.add_primitive("exit");
+        self.add_primitive("<");
+        self.add_primitive(">");
+        self.add_primitive("not");
+        self.add_primitive("-");
     }
 }
 
@@ -333,7 +341,31 @@ fn add(args: &Data) -> Data {
     }
 }
 
+fn minus(args: &Data) -> Data {
+    match (args.car(), args.cadr()) {
+        (Float(f), Float(g)) => Float(f - g),
+        _ => panic!("Cannot subtract these values."),
+    }
+}
 
+fn not(args: &Data) -> Data {
+    match args.car() {
+        Nil => Float(0.0),
+        _ => Nil,
+    }
+}
+
+fn lt(args: &Data) -> Data {
+    if let (Float(a), Float(b)) = (args.car(), args.cadr()) {
+        if a < b { Float(0.0) }
+        else { Nil }
+    }
+    else { panic!("Couldn't compare non-numbers.") }
+}
+
+fn gt(args: &Data) -> Data {
+    not(&lt(args))
+}
 
 #[allow(unused_variables)]
 fn quit(args: &Data) -> Data {
@@ -341,6 +373,6 @@ fn quit(args: &Data) -> Data {
     exit(0)
 }
 
-impl PartialEq for Env {
+impl PartialEq for EnvTable {
     fn eq(&self, _rhs:&Self) -> bool { false }
 }
