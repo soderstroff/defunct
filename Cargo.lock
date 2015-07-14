@@ -1,4 +1,12 @@
 [root]
 name = "defunct"
 version = "0.1.0"
+dependencies = [
+ "lazy_static 0.1.11 (registry+https://github.com/rust-lang/crates.io-index)",
+]
+
+[[package]]
+name = "lazy_static"
+version = "0.1.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
 
