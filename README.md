@@ -68,4 +68,4 @@ Q: Will this get better?
 A: In time. I have barely even put my pants on.
 
 Q: Why did you write it in Rust?  
-A: I have not written anything in Rust.
+A: We do it not because it is easy, but because it is hard.
