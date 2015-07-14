@@ -55,22 +55,17 @@ For instance, `(sum 500)` will panic.
 This implementation is not rigorously tested for semantic compliance with any specification. There is no specification, save the prior notes.
 
 ## FAQ
-Q: Why did you call it "defunct"? Are you bashing LISP?
-
+Q: Why did you call it "defunct"? Are you bashing LISP?  
 A: It is tongue-in-cheek. Clearly, lisp will never die. If that krevitch snorks your flads, you are needlessly pugnacious.
 
-Q: How can I use this?
-
+Q: How can I use this?  
 A: Carefully.
 
-Q: What can I do with this?
-
+Q: What can I do with this?  
 A: It is not even good enough to be an arithmetic calculator. Do not use it.
 
-Q: Will this get better?
-
+Q: Will this get better?  
 A: In time. I have barely even put my pants on.
 
-Q: Why did you write it in Rust?
-
+Q: Why did you write it in Rust?  
 A: I have not written anything in Rust.
