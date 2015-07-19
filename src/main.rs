@@ -10,14 +10,12 @@ use std::slice::Iter;
 use std::iter::Peekable;
 use std::io::Write;
 
-
 // Lisp data-types and evaluation environment
 mod data;
 use data::*;
 
+/// Takes a string of chars and returns a vector of tokens.
 fn tokenize(chars:&str) -> Vec<String>{
-    /* Takes a string of chars and returns a vector of tokens. */
-
     chars.replace("(", " ( ")
         .replace(")", " ) ")
         .split_whitespace()
@@ -26,8 +24,8 @@ fn tokenize(chars:&str) -> Vec<String>{
         .collect()
 }
 
+/// Reads an expression from a sequence of tokens.
 fn read_from_tokens(tokens: &mut Peekable<Iter<String>>) -> Data {
-    /* Reads an expression from a sequence of tokens. " */
 
     if tokens.len() == 0 {
         panic!("Unexpected EOF while parsing.");
@@ -44,7 +42,7 @@ fn read_from_tokens(tokens: &mut Peekable<Iter<String>>) -> Data {
         return l.nreverse();
     }
 
-    match token.parse::<f32>() {
+    match token.parse::<f64>() {
         Ok(f) => return Float(f),
         _ => {;}
     }
@@ -55,7 +53,6 @@ fn read_from_tokens(tokens: &mut Peekable<Iter<String>>) -> Data {
 fn parse(program: &str) -> Data {
     return read_from_tokens(&mut tokenize(program).iter().peekable());
 }
-
 
 fn repl(env: &mut Env) {
     let mut input = String::new();
@@ -71,8 +68,7 @@ fn repl(env: &mut Env) {
     }
 }
 
-
 fn main() {
-    let env = &mut EnvTable::new_root();
+    let env = &mut Env::new_root();
     repl(env);
 }

@@ -15,7 +15,7 @@ pub use data::Data::*;
 pub enum Data {
     Nil,
     Symbol(String),
-    Float(f32),
+    Float(f64),
     Function {
         args: Box<Data>,
         body: Box<Data>,
@@ -116,7 +116,7 @@ impl Data {
             "define" => {
                 if let Symbol(ref s) = self.car() {
                     let expr = self.cadr().eval(env);
-                    env.borrow_mut().insert(s.clone(), expr.clone());
+                    env.insert(s.clone(), expr.clone());
                     expr
                 }
                 else { panic!("Error: {} is not a symbol!", self.cadr()) }
@@ -146,7 +146,7 @@ impl Data {
                     }
                 }
             }
-            Symbol(ref s) => env.borrow_mut().lookup(s).clone(),
+            Symbol(ref s) => env.lookup(s).clone(),
             _ => self.clone()
         }
     }
@@ -179,12 +179,12 @@ impl Data {
         match *self {
             Function{ args: ref params, ref body, ref mut env } => {
                 if params.len() == args.len() {
-                    let mut scope = EnvTable::new(env.clone());
+                    let mut scope = Env::new(env.clone());
                     let mut a = (**params).clone();
                     let mut b = (*args).clone();
                     while a.car() != Nil && b.car() != Nil {
                         match a.car() {
-                            Symbol(ref s) => scope.borrow_mut().insert(s.clone(), b.car().clone()),
+                            Symbol(ref s) => scope.insert(s.clone(), b.car().clone()),
                             _ => unreachable!("In apply"),
                         }
                         a = a.cdr();
@@ -198,7 +198,7 @@ impl Data {
             },
 
             PrimitiveFn(ref s) => {
-                let f = primitives.get(s).unwrap();
+                let f = PRIMITIVES.get(s).unwrap();
                 return f(args)
             }
 
@@ -258,56 +258,64 @@ impl fmt::Display for Data {
     }
 }
 
+
 /// An environment frame. Has a parent, unless it is the root frame.
-#[derive(Clone)]
-pub struct EnvTable {
+struct EnvTable {
     env: HashMap<String, Data>,
     parent: Option<Env>,
 }
 
-pub type Env = Rc<RefCell<EnvTable>>;
+/// A pointer to an environment frame.
+#[derive(Clone,PartialEq)]
+pub struct Env(Rc<RefCell<EnvTable>>);
 
 lazy_static! {
-    static ref primitives: HashMap<String, fn(&Data) -> Data> = {
+    static ref PRIMITIVES: HashMap<String, fn(&Data) -> Data> = {
         let mut p: HashMap<String, fn(&Data) -> Data> = HashMap::new();
-        for (ident, op) in vec!(("*", times as fn(&Data)->Data), ("+", add), ("exit", quit), ("<", lt),
-            (">", gt), ("not", not), ("-", minus)) {
+        for (ident, op) in vec!(("*", multiply as fn(&Data)->Data), ("+", add), ("exit", quit), ("<", lt),
+            (">", gt), ("not", not), ("-", subtract), ("/", divide),
+            ("cons", cons), ("car", car), ("cdr", cdr), ("length", length)) {
                 p.insert(ident.to_string(), op);
             }
         p
     };
 }
 
-impl EnvTable {
+impl Env {
     pub fn new(parent: Env) -> Env {
         let e = EnvTable {
             env: HashMap::new(),
             parent: Some((parent.clone())),
         };
-        Rc::new(RefCell::new(e))
+        Env(Rc::new(RefCell::new(e)))
     }
 
     pub fn new_root() -> Env {
-        let mut e = EnvTable {
+        let table = EnvTable {
             env: HashMap::new(),
             parent: None,
         };
-        e.init_env();
-        Rc::new(RefCell::new(e))
+        let mut env = Env(Rc::new(RefCell::new(table)));
+        env.init_env();
+        env
     }
 
     pub fn lookup(&self, symbol: &String) -> Data {
-        if let v@Some(_) = self.env.get(symbol) { v.unwrap().clone() }
+        let table = self.0.borrow();
+        if let Some(ref value) = table.env.get(symbol) {
+            (*value).clone()
+        }
         else {
-            match self.parent {
-                Some(ref v) => v.borrow().lookup(symbol),
-                None => panic!("Could not find free variable {}", symbol)
+            let parent = &table.parent;
+            match parent {
+                &Some(ref v) => v.lookup(symbol),
+                &None => panic!("Could not find free variable {}", symbol)
             }
         }
     }
 
     pub fn insert(&mut self, symbol: String, d: Data) {
-        self.env.insert(symbol, d);
+        self.0.borrow_mut().env.insert(symbol, d);
     }
 
     pub fn add_primitive(&mut self, name: &str) {
@@ -316,56 +324,75 @@ impl EnvTable {
     }
 
     pub fn init_env(&mut self) {
-        self.add_primitive("+");
-        self.add_primitive("*");
-        self.add_primitive("exit");
-        self.add_primitive("<");
-        self.add_primitive(">");
-        self.add_primitive("not");
-        self.add_primitive("-");
+        for prim in vec!("+", "*", "exit", "<", ">", "not", "-", "/", "cons", "car", "cdr", "length") {
+            self.add_primitive(prim);
+        }
     }
 }
 
-/// Default environment.
-fn times (args: &Data) -> Data {
-    match (args.car(), args.cadr()) {
-        (Float(f), Float(g)) => Float(f * g),
-        _ => panic!("Cannot multiply these values."),
+macro_rules! function {
+    (name: $name:ident,
+     arity: $arity:expr,
+     args: $args:ident
+     body: $body:block) => {
+         fn $name ($args: &Data) -> Data {
+             if $args.len() != $arity {
+                 panic!("{} expected {}, but was called with {}", stringify!($name), $arity, $args.len());
+             }
+             else $body
+         }}}
+
+macro_rules! math {
+    ($op:tt, $name:ident) => {
+        function! {
+            name: $name, arity: 2, args: args
+            body: {
+                match (args.car(), args.cadr()) {
+                    (Float(f), Float(g)) => Float( f $op g),
+                    _ => panic!("Cannot {} these values.", stringify!($name)),
+                }}}}}
+
+math!(+, add);
+math!(-, subtract);
+math!(*, multiply);
+math!(/, divide);
+
+
+use std::f64;
+function!{ name: not, arity: 1, args:args
+    body: {
+        match args.car() {
+            Nil => Float(f64::NAN),
+            _ => Nil,
+        }}}
+
+function!{ name: lt, arity: 2, args:args
+    body: {
+        if let (Float(a), Float(b)) = (args.car(), args.cadr()) {
+            if a < b { Float(f64::NAN) }
+            else { Nil }
+        }
+        else { panic!("Couldn't compare non-numbers.") }
     }
 }
 
-fn add(args: &Data) -> Data {
-    match (args.car(), args.cadr()) {
-        (Float(f), Float(g)) => Float(f + g),
-        _ => panic!("Cannot add these values."),
+function!{ name: gt, arity: 2, args: args
+    body: {
+        not(&lt(args).cons(Nil))
     }
 }
 
-fn minus(args: &Data) -> Data {
-    match (args.car(), args.cadr()) {
-        (Float(f), Float(g)) => Float(f - g),
-        _ => panic!("Cannot subtract these values."),
-    }
-}
+function! { name: cons, arity: 2, args: args
+    body: { args.car().cons(args.cadr()) }}
 
-fn not(args: &Data) -> Data {
-    match args.car() {
-        Nil => Float(0.0),
-        _ => Nil,
-    }
-}
+function! { name: car, arity: 1, args:arg
+    body: { arg.car().car() }}
 
-fn lt(args: &Data) -> Data {
-    if let (Float(a), Float(b)) = (args.car(), args.cadr()) {
-        if a < b { Float(0.0) }
-        else { Nil }
-    }
-    else { panic!("Couldn't compare non-numbers.") }
-}
+function! { name: cdr, arity: 1, args:arg
+    body: { arg.car().cdr() }}
 
-fn gt(args: &Data) -> Data {
-    not(&lt(args))
-}
+function! { name: length, arity: 1, args:arg
+    body: { Float(arg.car().len() as f64) }}
 
 #[allow(unused_variables)]
 fn quit(args: &Data) -> Data {
